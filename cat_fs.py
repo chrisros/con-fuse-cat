@@ -130,5 +130,7 @@ def main(mountpoint, root):
     FUSE(Passthrough(root), mountpoint, nothreads=True, foreground=True)
 
 if __name__ == '__main__':
-    main(sys.argv[2], sys.argv[1])
-
+    try:
+        main(sys.argv[2], sys.argv[1])
+    except Exception as e:
+        print("Usage:\n    python3 cat_fs.py [source_path] [destination_mount_path]")
