@@ -4,8 +4,47 @@
 import os
 import sys
 import errno
+import subprocess
+import time
 
 from fuse import FUSE, FuseOSError, Operations
+
+DB_DUMP_FILENAME = 'DB_DUMP'
+
+# DB_DUMPS = 
+
+# This object mimics a FileHeader so that the OS won't notice that the file doesn't actualy exist
+class FileHeader(object):
+
+    def __init__(self):
+        self.header = {
+            'st_ctime': time.time(),
+            'st_gid': None,
+            'st_mode': 33261,
+            'st_mtime': 0,
+            'st_nlink': 1,
+            'st_size': 0,
+            'st_uid': None
+        }
+
+
+    def addFileFromPath(self, path):
+        self.addFile(dict((key, getattr(os.lstat(path), key)) for key in ('st_atime', 'st_ctime',
+                        'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid')))
+    
+    def addFile(self, fh):
+        if self.header['st_ctime'] > fh['st_ctime'] : self.header['st_ctime'] = fh['st_ctime']
+        if self.header['st_mtime'] < fh['st_mtime'] : self.header['st_mtime'] = fh['st_mtime'] 
+        if not self.header['st_gid'] : self.header['st_gid'] = int(fh['st_gid'])
+        if not self.header['st_uid'] : self.header['st_uid'] = int(fh['st_uid'])
+        self.header['st_size'] = int(self.header['st_size'] + fh['st_size'])
+
+    def get_dict(self):
+        return self.header
+
+    def __str__(self):
+        return str(self.header)
+
 
 
 class Passthrough(Operations):
@@ -21,6 +60,20 @@ class Passthrough(Operations):
         path = os.path.join(self.root, partial)
         return path
 
+    # return the stats for a file using its absolute path
+    def get_stats_for_path(self, path):
+        return dict((key, getattr(os.lstat(path), key)) for key in ('st_atime', 'st_ctime',
+                        'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
+
+    # get a valid FD 
+    def get_valid_fd(self, path, flags):
+        full_dir_path = path.rsplit('/', 1)[0]
+        if os.path.isdir(full_dir_path):
+            for f in os.listdir(full_dir_path):
+                if f.endswith('.sql'):
+                    return os.open(os.path.join(full_dir_path, f), flags) 
+
+        
     # Filesystem methods
     # ==================
 
@@ -38,18 +91,27 @@ class Passthrough(Operations):
         return os.chown(full_path, uid, gid)
 
     def getattr(self, path, fh=None):
+        sql_dump_fh = FileHeader()
         full_path = self._full_path(path)
-        st = os.lstat(full_path)
-        return dict((key, getattr(st, key)) for key in ('st_atime', 'st_ctime',
-                     'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
+        if full_path.endswith(DB_DUMP_FILENAME):
+            files = os.listdir(full_path.rsplit('/', 1)[0])
+            for f in files:
+                if f.endswith('.sql'):
+                    sql_dump_fh.addFile(self.get_stats_for_path(os.path.join(full_path.rsplit('/', 1)[0], f)))
+            return sql_dump_fh.get_dict()
+        return self.get_stats_for_path(full_path)
 
     def readdir(self, path, fh):
         full_path = self._full_path(path)
+        sql_dump_shown = False
 
         dirents = ['.', '..']
         if os.path.isdir(full_path):
             dirents.extend(os.listdir(full_path))
         for r in dirents:
+            if r.endswith('.sql') and not sql_dump_shown: # replace with better selector when refactoring to sepereate folder
+                yield DB_DUMP_FILENAME
+                sql_dump_shown = True
             yield r
 
     def readlink(self, path):
@@ -97,6 +159,9 @@ class Passthrough(Operations):
 
     def open(self, path, flags):
         full_path = self._full_path(path)
+        if path.endswith(DB_DUMP_FILENAME):
+            # Return a valid file descriptor of one of the files part of the dump
+            return self.get_valid_fd(full_path, flags)
         return os.open(full_path, flags)
 
     def create(self, path, mode, fi=None):
@@ -104,8 +169,20 @@ class Passthrough(Operations):
         return os.open(full_path, os.O_WRONLY | os.O_CREAT, mode)
 
     def read(self, path, length, offset, fh):
-        os.lseek(fh, offset, os.SEEK_SET)
-        return os.read(fh, length)
+        # Return the concatenated file, if it is read
+        if path.endswith(DB_DUMP_FILENAME):
+            full_dir_path = self._full_path(path).rsplit('/', 1)[0]
+            command = ['cat']
+            if os.path.isdir(full_dir_path):
+                for f in os.listdir(full_dir_path):
+                    if f.endswith('.sql'):
+                        command.append(os.path.join(full_dir_path, f))
+            result = subprocess.run(command, stdout=subprocess.PIPE)
+            return result.stdout
+        # Otherwise just passtrough the read 
+        else:
+            os.lseek(fh, offset, os.SEEK_SET)
+            return os.read(fh, length)
 
     def write(self, path, buf, offset, fh):
         os.lseek(fh, offset, os.SEEK_SET)
