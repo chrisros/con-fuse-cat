@@ -202,11 +202,11 @@ class Passthrough(Operations):
         return self.flush(path, fh)
 
 
-def main(mountpoint, root):
+def main(root, mountpoint):
     FUSE(Passthrough(root), mountpoint, nothreads=True, foreground=True)
 
 if __name__ == '__main__':
     try:
-        main(sys.argv[2], sys.argv[1])
+        main(sys.argv[1], sys.argv[2])
     except Exception as e:
         print("Usage:\n    python3 cat_fs.py [source_path] [destination_mount_path]")
