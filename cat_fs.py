@@ -177,8 +177,7 @@ class Passthrough(Operations):
                 for f in os.listdir(full_dir_path):
                     if f.endswith('.sql'):
                         command.append(os.path.join(full_dir_path, f))
-            result = subprocess.run(command, stdout=subprocess.PIPE)
-            return result.stdout
+            return subprocess.run(command, stdout=subprocess.PIPE).stdout[offset:offset+length]
         # Otherwise just passtrough the read 
         else:
             os.lseek(fh, offset, os.SEEK_SET)
