@@ -9,9 +9,8 @@ import time
 
 from fuse import FUSE, FuseOSError, Operations
 
-DB_DUMP_FILENAME = 'DB_DUMP'
+DB_DUMP_FILENAME = '_DB_DUMP.sql'
 
-# DB_DUMPS = 
 
 # This object mimics a FileHeader so that the OS won't notice that the file doesn't actualy exist
 class FileHeader(object):
@@ -20,7 +19,7 @@ class FileHeader(object):
         self.header = {
             'st_ctime': time.time(),
             'st_gid': None,
-            'st_mode': 33261,
+            'st_mode': 33261, # TODO add right st_mode 
             'st_mtime': 0,
             'st_nlink': 1,
             'st_size': 0,
@@ -94,24 +93,29 @@ class Passthrough(Operations):
         sql_dump_fh = FileHeader()
         full_path = self._full_path(path)
         if full_path.endswith(DB_DUMP_FILENAME):
-            files = os.listdir(full_path.rsplit('/', 1)[0])
-            for f in files:
-                if f.endswith('.sql'):
-                    sql_dump_fh.addFile(self.get_stats_for_path(os.path.join(full_path.rsplit('/', 1)[0], f)))
-            return sql_dump_fh.get_dict()
+            sql_folder = full_path.replace(DB_DUMP_FILENAME, '/')
+            if os.path.isdir(sql_folder):
+                for f in os.listdir(sql_folder):
+                    if f.endswith('.sql'):
+                        sql_dump_fh.addFile(self.get_stats_for_path(os.path.join(full_path.rsplit('/', 1)[0], f)))
+                return sql_dump_fh.get_dict()
         return self.get_stats_for_path(full_path)
 
     def readdir(self, path, fh):
         full_path = self._full_path(path)
-        sql_dump_shown = False
+        sql_dumps_shown = []
 
         dirents = ['.', '..']
         if os.path.isdir(full_path):
             dirents.extend(os.listdir(full_path))
         for r in dirents:
-            if r.endswith('.sql') and not sql_dump_shown: # replace with better selector when refactoring to sepereate folder
-                yield DB_DUMP_FILENAME
-                sql_dump_shown = True
+            r_path =  os.path.join(full_path, r)
+            if os.path.isdir(r_path):       
+                for f in os.listdir(r_path):
+                    # TODO add check for folder
+                    if f.endswith('.sql') and not r in sql_dumps_shown: 
+                        yield '{}{}'.format(r, DB_DUMP_FILENAME)
+                        sql_dumps_shown.append(r)
             yield r
 
     def readlink(self, path):
@@ -161,6 +165,7 @@ class Passthrough(Operations):
         full_path = self._full_path(path)
         if path.endswith(DB_DUMP_FILENAME):
             # Return a valid file descriptor of one of the files part of the dump
+            os.path.join(full_path, path.rsplit('/', 1)[1].replace(DB_DUMP_FILENAME, '/'))
             return self.get_valid_fd(full_path, flags)
         return os.open(full_path, flags)
 
@@ -171,7 +176,7 @@ class Passthrough(Operations):
     def read(self, path, length, offset, fh):
         # Return the concatenated file, if it is read
         if path.endswith(DB_DUMP_FILENAME):
-            full_dir_path = self._full_path(path).rsplit('/', 1)[0]
+            full_dir_path = self._full_path(path).replace(DB_DUMP_FILENAME, '/')
             command = ['cat']
             if os.path.isdir(full_dir_path):
                 for f in os.listdir(full_dir_path):
