@@ -20,7 +20,7 @@ class FileHeader(object):
         self.header = {
             'st_ctime': time.time(),
             'st_gid': None,
-            'st_mode': 33261, # TODO add right st_mode 
+            'st_mode': None,
             'st_mtime': 0,
             'st_nlink': 1,
             'st_size': 0,
@@ -35,7 +35,8 @@ class FileHeader(object):
     # Reads a file's FH, and updates the header for dominant information in that FH
     def addFile(self, fh):
         if self.header['st_ctime'] > fh['st_ctime'] : self.header['st_ctime'] = fh['st_ctime']
-        if self.header['st_mtime'] < fh['st_mtime'] : self.header['st_mtime'] = fh['st_mtime'] 
+        if self.header['st_mtime'] < fh['st_mtime'] : self.header['st_mtime'] = fh['st_mtime']
+        if not self.header['st_mode'] : self.header['st_mode'] = int(fh['st_mode'])
         if not self.header['st_gid'] : self.header['st_gid'] = int(fh['st_gid'])
         if not self.header['st_uid'] : self.header['st_uid'] = int(fh['st_uid'])
         self.header['st_size'] = int(self.header['st_size'] + fh['st_size'])
