@@ -4,11 +4,12 @@
 import os
 import sys
 import errno
+import re
 import subprocess
 import time
 
 from fuse import FUSE, FuseOSError, Operations
-from settings import CONCAT_FILE_EXTENSION, DB_DUMP_FILENAME, READONLY_FLAG
+from settings import CONCAT_FILE_EXTENSION, DB_DUMP_FILENAME, EXTENDED_PATH_VALIDATION, READONLY_FLAG, VALID_PATH_REGEX
 
 
 ''' This object mimics a FileHeader so that the OS won't notice that the file doesn't actualy exist '''
@@ -70,6 +71,9 @@ class Passthrough(Operations):
         path = os.path.join(self.root, partial)
         return path
 
+    def check_if_valid_concat_path(self, path):
+        return bool(os.path.isdir(path) and (not EXTENDED_PATH_VALIDATION or re.search(VALID_PATH_REGEX, path)))
+    
     # return the stats for a file using its absolute path
     def get_stats_for_path(self, path):
         return dict((key, getattr(os.lstat(path), key)) for key in ('st_atime', 'st_ctime',
@@ -96,7 +100,7 @@ class Passthrough(Operations):
         full_path = self._full_path(path)
         if full_path.endswith(DB_DUMP_FILENAME):
             sql_folder = full_path.replace(DB_DUMP_FILENAME, '/')
-            if not os.path.isdir(sql_folder) : raise errno.ENOSYS
+            if not self.check_if_valid_concat_path(sql_folder) : raise errno.ENOSYS
             for f in os.listdir(sql_folder):
                 if f.endswith(CONCAT_FILE_EXTENSION):
                     sql_dump_fh.addFile(self.get_stats_for_path(os.path.join(sql_folder, f)))
@@ -111,9 +115,8 @@ class Passthrough(Operations):
         dirents.extend(os.listdir(full_path))
         for r in dirents:
             r_path =  os.path.join(full_path, r)
-            if os.path.isdir(r_path):       
+            if self.check_if_valid_concat_path(r_path):   
                 for f in os.listdir(r_path):
-                    # TODO add check for folder
                     if f.endswith(CONCAT_FILE_EXTENSION) and not r in sql_dumps_shown: 
                         sql_dumps_shown.append(r)
                         yield '{}{}'.format(r, DB_DUMP_FILENAME)
@@ -193,7 +196,7 @@ class Passthrough(Operations):
         if path.endswith(DB_DUMP_FILENAME):
             full_dir_path = self._full_path(path).replace(DB_DUMP_FILENAME, '/')
             command = ['cat']
-            if os.path.isdir(full_dir_path):
+            if self.check_if_valid_concat_path(full_dir_path):
                 for f in os.listdir(full_dir_path):
                     if f.endswith(CONCAT_FILE_EXTENSION):
                         command.append(os.path.join(full_dir_path, f))
