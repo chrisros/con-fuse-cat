@@ -8,9 +8,7 @@ import subprocess
 import time
 
 from fuse import FUSE, FuseOSError, Operations
-
-DB_DUMP_FILENAME = '_DB_DUMP.sql'
-
+from settings import CONCAT_FILE_EXTENSION, DB_DUMP_FILENAME, READONLY_FLAG
 
 
 ''' This object mimics a FileHeader so that the OS won't notice that the file doesn't actualy exist '''
@@ -82,7 +80,7 @@ class Passthrough(Operations):
         full_dir_path = path.rsplit('/', 1)[0]
         if os.path.isdir(full_dir_path):
             for f in os.listdir(full_dir_path):
-                if f.endswith('.sql'):
+                if f.endswith(CONCAT_FILE_EXTENSION):
                     return os.open(os.path.join(full_dir_path, f), flags) 
 
         
@@ -100,7 +98,7 @@ class Passthrough(Operations):
             sql_folder = full_path.replace(DB_DUMP_FILENAME, '/')
             if not os.path.isdir(sql_folder) : raise errno.ENOSYS
             for f in os.listdir(sql_folder):
-                if f.endswith('.sql'):
+                if f.endswith(CONCAT_FILE_EXTENSION):
                     sql_dump_fh.addFile(self.get_stats_for_path(os.path.join(sql_folder, f)))
             return sql_dump_fh.get_dict()
         return self.get_stats_for_path(full_path)
@@ -116,7 +114,7 @@ class Passthrough(Operations):
             if os.path.isdir(r_path):       
                 for f in os.listdir(r_path):
                     # TODO add check for folder
-                    if f.endswith('.sql') and not r in sql_dumps_shown: 
+                    if f.endswith(CONCAT_FILE_EXTENSION) and not r in sql_dumps_shown: 
                         sql_dumps_shown.append(r)
                         yield '{}{}'.format(r, DB_DUMP_FILENAME)
             yield r
@@ -197,7 +195,7 @@ class Passthrough(Operations):
             command = ['cat']
             if os.path.isdir(full_dir_path):
                 for f in os.listdir(full_dir_path):
-                    if f.endswith('.sql'):
+                    if f.endswith(CONCAT_FILE_EXTENSION):
                         command.append(os.path.join(full_dir_path, f))
             return subprocess.run(command, stdout=subprocess.PIPE).stdout[offset:offset+length]
         # Otherwise just passtrough the read 
@@ -239,9 +237,9 @@ def main(root, mountpoint, readonly):
 if __name__ == '__main__':
     try:
         try:
-            if 'readonly' in sys.argv[3].lower() : readonly = True
+            if READONLY_FLAG in sys.argv[3].lower() : readonly = True
         except IndexError as e:
             readonly = False
         main(sys.argv[1], sys.argv[2], readonly)
     except IndexError as e:
-        print("Usage:\n    python3 cat_fs.py [source_path] [destination_mount_path]")
+        print("Usage:\n    python3 cat_fs.py [source_path] [destination_mount_path] ([readonly, --readonly])")
