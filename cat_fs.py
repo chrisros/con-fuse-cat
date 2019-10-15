@@ -98,28 +98,27 @@ class Passthrough(Operations):
         full_path = self._full_path(path)
         if full_path.endswith(DB_DUMP_FILENAME):
             sql_folder = full_path.replace(DB_DUMP_FILENAME, '/')
-            if os.path.isdir(sql_folder):
-                for f in os.listdir(sql_folder):
-                    if f.endswith('.sql'):
-                        sql_dump_fh.addFile(self.get_stats_for_path(os.path.join(full_path.rsplit('/', 1)[0], f)))
-                return sql_dump_fh.get_dict()
+            if not os.path.isdir(sql_folder) : raise errno.ENOSYS
+            for f in os.listdir(sql_folder):
+                if f.endswith('.sql'):
+                    sql_dump_fh.addFile(self.get_stats_for_path(os.path.join(sql_folder, f)))
+            return sql_dump_fh.get_dict()
         return self.get_stats_for_path(full_path)
 
     def readdir(self, path, fh):
-        full_path = self._full_path(path)
         sql_dumps_shown = []
-
         dirents = ['.', '..']
-        if os.path.isdir(full_path):
-            dirents.extend(os.listdir(full_path))
+        full_path = self._full_path(path)
+        if not os.path.isdir(full_path) : raise errno.ENOSYS
+        dirents.extend(os.listdir(full_path))
         for r in dirents:
             r_path =  os.path.join(full_path, r)
             if os.path.isdir(r_path):       
                 for f in os.listdir(r_path):
                     # TODO add check for folder
                     if f.endswith('.sql') and not r in sql_dumps_shown: 
-                        yield '{}{}'.format(r, DB_DUMP_FILENAME)
                         sql_dumps_shown.append(r)
+                        yield '{}{}'.format(r, DB_DUMP_FILENAME)
             yield r
 
     def readlink(self, path):
