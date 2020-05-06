@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 
-from fusepy import FUSE, FuseOSError, Operations
+from fusepy import FUSE, FuseOSError, Operations, fuse_get_context
 from settings import CONCAT_FILE_EXTENSION, DB_DUMP_FILENAME, EXTENDED_PATH_VALIDATION, READONLY_FLAG, VALID_PATH_REGEX
 
 
@@ -73,6 +73,8 @@ class Passthrough(Operations):
             path = os.path.join(self.mountpoint, partial)
         else:
             path = os.path.join(self.root, partial)
+        if fuse_get_context()[0] != os.stat(path).st_uid and fuse_get_context()[0] != 0 and  os.stat(path).st_uid != 0:
+            raise FuseOSError(errno.EACCES)
         return path
 
     def check_if_valid_concat_path(self, path):
