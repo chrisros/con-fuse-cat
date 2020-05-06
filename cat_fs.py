@@ -77,7 +77,7 @@ class Passthrough(Operations):
 
     def check_if_valid_concat_path(self, path):
         return bool(os.path.isdir(path) and (not EXTENDED_PATH_VALIDATION or re.search(VALID_PATH_REGEX, path)))
-    
+
     # return the stats for a file using its absolute path
     def get_stats_for_path(self, path):
         return dict((key, getattr(os.lstat(path), key)) for key in ('st_atime', 'st_ctime',
@@ -92,7 +92,7 @@ class Passthrough(Operations):
                     return os.open(os.path.join(full_dir_path, f), flags)
         raise Exception("{} not a dir".format(full_dir_path))
 
-        
+
     ''' Filesystem methods '''
 
     def access(self, path, mode):
@@ -120,9 +120,9 @@ class Passthrough(Operations):
         dirents.extend(os.listdir(full_path))
         for r in dirents:
             r_path =  os.path.join(full_path, r)
-            if self.check_if_valid_concat_path(r_path):   
+            if self.check_if_valid_concat_path(r_path):
                 for f in os.listdir(r_path):
-                    if f.endswith(CONCAT_FILE_EXTENSION) and not r in sql_dumps_shown: 
+                    if f.endswith(CONCAT_FILE_EXTENSION) and not r in sql_dumps_shown:
                         sql_dumps_shown.append(r)
                         yield '{}{}'.format(r, DB_DUMP_FILENAME)
             yield r
@@ -208,7 +208,7 @@ class Passthrough(Operations):
                     if f.endswith(CONCAT_FILE_EXTENSION):
                         command.append(os.path.join(full_dir_path, f))
             return subprocess.run(command, stdout=subprocess.PIPE).stdout[offset:offset+length]
-        # Otherwise just passtrough the read 
+        # Otherwise just passtrough the read
         else:
             os.lseek(fh, offset, os.SEEK_SET)
             return os.read(fh, length)
