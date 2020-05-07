@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 
-from fuse import FUSE, FuseOSError, Operations
+from fusepy import FUSE, FuseOSError, Operations, fuse_get_context
 from settings import CONCAT_FILE_EXTENSION, DB_DUMP_FILENAME, EXTENDED_PATH_VALIDATION, READONLY_FLAG, VALID_PATH_REGEX
 
 
@@ -50,8 +50,9 @@ class FileHeader(object):
 
 ''' This is the actual FUSE FS, overwriting all the methods needed to function as a full FS '''
 class Passthrough(Operations):
-    def __init__(self, root, readonly=False):
+    def __init__(self, root, mountpoint, readonly=False):
         self.root = root
+        self.mountpoint = mountpoint
         self.readonly = readonly
 
     # Helpers
@@ -65,15 +66,20 @@ class Passthrough(Operations):
         return decorator
 
     # Return the full path of a partial path based on the root (source path of the mointpoint))
-    def _full_path(self, partial):
+    def _full_path(self, partial, from_mount=False):
         if partial.startswith("/"):
             partial = partial[1:]
-        path = os.path.join(self.root, partial)
+        if from_mount:
+            path = os.path.join(self.mountpoint, partial)
+        else:
+            path = os.path.join(self.root, partial)
+        if fuse_get_context()[0] != os.stat(path).st_uid and fuse_get_context()[0] != 0 and  os.stat(path).st_uid != 0:
+            raise FuseOSError(errno.EACCES)
         return path
 
     def check_if_valid_concat_path(self, path):
         return bool(os.path.isdir(path) and (not EXTENDED_PATH_VALIDATION or re.search(VALID_PATH_REGEX, path)))
-    
+
     # return the stats for a file using its absolute path
     def get_stats_for_path(self, path):
         return dict((key, getattr(os.lstat(path), key)) for key in ('st_atime', 'st_ctime',
@@ -81,13 +87,14 @@ class Passthrough(Operations):
 
     # get a valid FD from a path, used to supply a valid FD for non-existing files.
     def get_valid_fd(self, path, flags):
-        full_dir_path = path.rsplit('/', 1)[0]
+        full_dir_path = path.replace(DB_DUMP_FILENAME, '/') #= path.rsplit('/', 1)[0]
         if os.path.isdir(full_dir_path):
             for f in os.listdir(full_dir_path):
                 if f.endswith(CONCAT_FILE_EXTENSION):
-                    return os.open(os.path.join(full_dir_path, f), flags) 
+                    return os.open(os.path.join(full_dir_path, f), flags)
+        raise Exception("{} not a dir".format(full_dir_path))
 
-        
+
     ''' Filesystem methods '''
 
     def access(self, path, mode):
@@ -100,7 +107,7 @@ class Passthrough(Operations):
         full_path = self._full_path(path)
         if full_path.endswith(DB_DUMP_FILENAME):
             sql_folder = full_path.replace(DB_DUMP_FILENAME, '/')
-            if not self.check_if_valid_concat_path(sql_folder) : raise errno.ENOSYS
+            if not self.check_if_valid_concat_path(sql_folder) : raise FuseOSError(errno.ENOSYS)
             for f in os.listdir(sql_folder):
                 if f.endswith(CONCAT_FILE_EXTENSION):
                     sql_dump_fh.addFile(self.get_stats_for_path(os.path.join(sql_folder, f)))
@@ -111,24 +118,26 @@ class Passthrough(Operations):
         sql_dumps_shown = []
         dirents = ['.', '..']
         full_path = self._full_path(path)
-        if not os.path.isdir(full_path) : raise errno.ENOSYS
+        if not os.path.isdir(full_path) : raise FuseOSError(errno.ENOSYS)
         dirents.extend(os.listdir(full_path))
         for r in dirents:
             r_path =  os.path.join(full_path, r)
-            if self.check_if_valid_concat_path(r_path):   
+            if self.check_if_valid_concat_path(r_path):
                 for f in os.listdir(r_path):
-                    if f.endswith(CONCAT_FILE_EXTENSION) and not r in sql_dumps_shown: 
+                    if f.endswith(CONCAT_FILE_EXTENSION) and not r in sql_dumps_shown:
                         sql_dumps_shown.append(r)
                         yield '{}{}'.format(r, DB_DUMP_FILENAME)
             yield r
 
     def readlink(self, path):
         pathname = os.readlink(self._full_path(path))
+        #return pathname
         if pathname.startswith("/"):
             # Path name is absolute, sanitize it.
+            #raise Exception(os.path.relpath(pathname, self.root, from_mount=True))
             return os.path.relpath(pathname, self.root)
-        else:
-            return pathname
+        #else:
+        return pathname
 
     def statfs(self, path):
         full_path = self._full_path(path)
@@ -187,7 +196,7 @@ class Passthrough(Operations):
         full_path = self._full_path(path)
         if path.endswith(DB_DUMP_FILENAME):
             # Return a valid file descriptor of one of the files part of the dump
-            os.path.join(full_path, path.rsplit('/', 1)[1].replace(DB_DUMP_FILENAME, '/'))
+            #os.path.join(full_path, path.rsplit('/', 1)[1].replace(DB_DUMP_FILENAME, '/'))
             return self.get_valid_fd(full_path, flags)
         return os.open(full_path, flags)
 
@@ -201,7 +210,7 @@ class Passthrough(Operations):
                     if f.endswith(CONCAT_FILE_EXTENSION):
                         command.append(os.path.join(full_dir_path, f))
             return subprocess.run(command, stdout=subprocess.PIPE).stdout[offset:offset+length]
-        # Otherwise just passtrough the read 
+        # Otherwise just passtrough the read
         else:
             os.lseek(fh, offset, os.SEEK_SET)
             return os.read(fh, length)
@@ -235,7 +244,7 @@ class Passthrough(Operations):
 
 
 def main(root, mountpoint, readonly):
-    FUSE(Passthrough(root, readonly), mountpoint, nothreads=True, foreground=True)
+    FUSE(Passthrough(root, mountpoint, readonly), mountpoint, nothreads=True, foreground=True, allow_other=True)
 
 if __name__ == '__main__':
     try:
